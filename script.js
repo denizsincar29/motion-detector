@@ -9,6 +9,7 @@ let motionDetector = null;
 let canvas = null;
 let ctx = null;
 let video = null; // Define video here
+let motion_div = document.getElementById("motion");
 
 // Debounce time for screen reader announcements (milliseconds)
 const DEBOUNCE_TIME = 2000; // Adjust as needed - 2 seconds default
@@ -43,6 +44,13 @@ function processFrame() {
 function handleMotion(detectionResult) {
   if (detectionResult === wasm.DetectionResult.Detected) {
     motionDetectedSinceLastSpoke = true;
+    motion_div.style.backgroundColor = "red";
+    motion_div.style.color = "white"; // Ensure text is visible on red
+    motion_div.textContent = "Motion Detected"; // More descriptive text
+  } else {
+    motion_div.style.backgroundColor = "lightgray"; // Neutral background
+    motion_div.style.color = "black"; // Default text color
+    motion_div.textContent = "No Motion";
   }
 }
 
