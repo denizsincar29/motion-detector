@@ -1,4 +1,4 @@
-function speak(text, priority) {
+export function speak(text, priority) {
     var el = document.createElement('div')
     var id = 'speak-' + Date.now()
     el.setAttribute('id', id)
@@ -14,4 +14,3 @@ function speak(text, priority) {
         document.body.removeChild(document.getElementById(id))
     }, 1000)
 }
-
