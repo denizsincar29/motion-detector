@@ -12,13 +12,18 @@ let video = null; // Define video here
 let motion_div = document.getElementById("motion");
 
 // Debounce time for screen reader announcements (milliseconds)
-const DEBOUNCE_TIME = 2000; // Adjust as needed - 2 seconds default
-
-// Last time the screen reader spoke
+const DEBOUNCE_TIME = 1000;
 let lastSpokeTime = 0;
-
-// Boolean to record detections between debounce periods
 let motionDetectedSinceLastSpoke = false;
+
+// if ?say=custom+detection+message is in the URL, speak the custom message
+const urlParams = new URLSearchParams(window.location.search);
+let customMessage = urlParams.get("say");
+// is it url decoded? And + is space as like in google search
+customMessage = customMessage ? decodeURIComponent(customMessage) : null;
+if (!customMessage) {
+  customMessage = "Motion detected";
+}
 
 // Function to process frame and send to WASM
 function processFrame() {
@@ -37,8 +42,10 @@ function processFrame() {
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const pixels = imageData.data;
 
+  // set width and height of the motion detector
+  motionDetector.set_size(canvas.width, canvas.height);
   // Send the raw pixel data to WASM
-  return motionDetector.process_frame(pixels, canvas.width, canvas.height);
+  return motionDetector.process_frame(pixels);
 }
 
 function handleMotion(detectionResult) {
@@ -46,7 +53,7 @@ function handleMotion(detectionResult) {
     motionDetectedSinceLastSpoke = true;
     motion_div.style.backgroundColor = "red";
     motion_div.style.color = "white"; // Ensure text is visible on red
-    motion_div.textContent = "Motion Detected"; // More descriptive text
+    motion_div.textContent = customMessage;
   } else {
     motion_div.style.backgroundColor = "lightgray"; // Neutral background
     motion_div.style.color = "black"; // Default text color
@@ -72,7 +79,7 @@ setInterval(() => {
   if (motionDetectedSinceLastSpoke) {
     const now = Date.now();
     if (now - lastSpokeTime > DEBOUNCE_TIME) {
-      speak('Motion detected');
+      speak(customMessage);
       lastSpokeTime = now;
       motionDetectedSinceLastSpoke = false; // Reset the flag
     }
@@ -89,7 +96,7 @@ async function initEverything() {
   // init camera
   let stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
-  motionDetector = new wasm.MotionDetector;
+  motionDetector = new wasm.MotionDetector(video.videoWidth, video.videoHeight);
 }
 
 initEverything();
