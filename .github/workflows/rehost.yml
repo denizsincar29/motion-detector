@@ -33,3 +33,4 @@ jobs:
           key: ${{ secrets.KEY }}
           source: "pkg, index.html, script.js, screenreader.js, style.css, hosted_at.txt"
           target: "/var/www/html/deniz.r1oaz.ru/motion"
+          rm: true
