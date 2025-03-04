@@ -28,8 +28,8 @@ jobs:
       - name: send to server
         uses: appleboy/scp-action@master
         with:
-          host: ${{ secrets.host }}
-          username: root
-          key: ${{ secrets.key }}
+          host: ${{ secrets.HOST }}
+          username: denizsincar29
+          key: ${{ secrets.KEY }}
           source: "pkg, index.html, script.js, screenreader.js, style.css, hosted_at.txt"
           target: "/var/www/html/deniz.r1oaz.ru/motion"
