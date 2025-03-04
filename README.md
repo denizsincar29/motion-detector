@@ -9,6 +9,11 @@ The module uses the standard web camera api to get a video stream. It feeds the 
 The motion detection is done by comparing the current frame with the previous frame. If the difference is above a certain threshold, motion is detected.
 On my machine, it could detect millimeter movements of me sitting in front of the camera, so to test it, i go far away from the camera and then walk towards it.
 
+## Try it out
+You can try it out [here](https://deniz.r1oaz.ru/motion).
+If you want to customize the "motion detected!" message, you can add `say="your message here"` to the url. For example, [here](https://deniz.r1oaz.ru/motion?say=Stand+still!) when motion is detected, the screenreader will say "Stand still!".
+
+
 ## build
 To build the module, you need to have `wasm-pack` installed. You can install it using `cargo`:
 ```bash
@@ -28,9 +33,6 @@ When motion is detected, a small div will become red and say "Motion detected". 
 
 
 
-
-## demo
-Not available yet.
 
 ## license
 MIT
