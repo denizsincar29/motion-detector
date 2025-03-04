@@ -2,7 +2,12 @@
 A wasm module that detects motion in a video stream from a webcam directly in the browser.
 
 ## Note
-This is a work in progress. The module is not yet working properly.
+This is a work in progress, but as of 4 march 2024 it's working!
+
+## how it works
+The module uses the standard web camera api to get a video stream. It feeds the video stream through a canvas to wasm where the motion detection is done.
+The motion detection is done by comparing the current frame with the previous frame. If the difference is above a certain threshold, motion is detected.
+On my machine, it could detect millimeter movements of me sitting in front of the camera, so to test it, i go far away from the camera and then walk towards it.
 
 ## build
 To build the module, you need to have `wasm-pack` installed. You can install it using `cargo`:
