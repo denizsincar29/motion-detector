@@ -1,3 +1,5 @@
+send_to_server.bat
+
 /target
 **/*.rs.bk
 Cargo.lock
