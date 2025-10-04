@@ -1,36 +1,37 @@
-name: compile wasm
+# Temporarily disabled - will be fixed later
+# name: compile wasm
 
-on:
-  push:
-    branches:
-      - master
+# on:
+#   push:
+#     branches:
+#       - master
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v2
+#     steps:
+#       - uses: actions/checkout@v2
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+#       - name: Install Rust
+#         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+#       - name: Install wasm-pack
+#         run: cargo install wasm-pack
 
-      - name: Build wasm
-        run: wasm-pack build --target web
+#       - name: Build wasm
+#         run: wasm-pack build --target web
 
-      - name: Create file
-        run: echo "hosted at $(date)" > hosted_at.txt
+#       - name: Create file
+#         run: echo "hosted at $(date)" > hosted_at.txt
 
-      # send the pkg, index.html, script.js, screenreader.js, and style.css and hosted_at.txt to the server
-      - name: send to server
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: denizsincar29
-          key: ${{ secrets.KEY }}
-          source: "pkg, index.html, script.js, screenreader.js, style.css, hosted_at.txt"
-          target: "/var/www/html/deniz.r1oaz.ru/motion"
-          rm: true
+#       # send the pkg, index.html, script.js, screenreader.js, and style.css and hosted_at.txt to the server
+#       - name: send to server
+#         uses: appleboy/scp-action@master
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: denizsincar29
+#           key: ${{ secrets.KEY }}
+#           source: "pkg, index.html, script.js, screenreader.js, style.css, hosted_at.txt"
+#           target: "/var/www/html/deniz.r1oaz.ru/motion"
+#           rm: true
