@@ -10,8 +10,8 @@ The motion detection is done by comparing the current frame with the previous fr
 On my machine, it could detect millimeter movements of me sitting in front of the camera, so to test it, i go far away from the camera and then walk towards it.
 
 ## Try it out
-You can try it out [here](https://deniz.r1oaz.ru/motion).
-If you want to customize the "motion detected!" message, you can add `say="your message here"` to the url. For example, [here](https://deniz.r1oaz.ru/motion?say=Stand+still!) when motion is detected, the screenreader will say "Stand still!".
+You can try it out [here](https://denizsincar.ru/motion).
+If you want to customize the "motion detected!" message, you can add `say="your message here"` to the url. For example, [here](https://denizsincar.ru/motion?say=Stand+still!) when motion is detected, the screenreader will say "Stand still!".
 
 
 ## build

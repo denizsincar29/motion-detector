@@ -93,10 +93,36 @@ async function initEverything() {
   // get canvas element
   canvas = document.getElementById("canvas");
   ctx = canvas.getContext("2d");
-  // init camera
-  let stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
-  motionDetector = new wasm.MotionDetector(video.videoWidth, video.videoHeight);
+  
+  // Get camera select element
+  const cameraSelect = document.getElementById("camera-select");
+  
+  // Function to initialize camera with selected facing mode
+  async function initCamera() {
+    const facingMode = cameraSelect.value;
+    try {
+      // Stop existing stream if any
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+      }
+      
+      // init camera with selected facing mode
+      let stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: facingMode } 
+      });
+      video.srcObject = stream;
+      motionDetector = new wasm.MotionDetector(video.videoWidth, video.videoHeight);
+    } catch (error) {
+      console.error("Error accessing camera:", error);
+      alert("Could not access the selected camera. Please check your camera permissions.");
+    }
+  }
+  
+  // Initialize camera with default selection
+  await initCamera();
+  
+  // Add event listener for camera selection changes
+  cameraSelect.addEventListener("change", initCamera);
 }
 
 initEverything();
