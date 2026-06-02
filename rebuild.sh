@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# rebuild.sh — deploy Motion Detector static frontend to /var/www/html/motion-detector
+# rebuild.sh — build WASM and deploy Motion Detector to /var/www/html/motion-detector
 #
 # What it does:
-#   • Copies every static frontend file (HTML, CSS, JS) to DEST
-#   • Skips .git, src/, tests/, *.sh, *.md, *.toml, *.lock
-#   • Never deletes manually-added server-side files in DEST
+#   1. Builds the WASM package with wasm-pack (or cargo + wasm-bindgen)
+#   2. Copies only index.html, style.css, *.js, and pkg/ artefacts to DEST
+#   3. Never deletes manually-added server-side files in DEST
 #
 # Usage:
 #   ./rebuild.sh              — deploy to default target
@@ -31,28 +31,37 @@ if [[ ! -f "$SRC/index.html" ]]; then
     exit 1
 fi
 
-# Create dest if needed
+# ── Build WASM ────────────────────────────────────────────────────────────────
+cd "$SRC"
+echo -e "${GREEN}==> Building WASM...${NC}"
+if command -v wasm-pack >/dev/null 2>&1; then
+    wasm-pack build --target web --release
+else
+    echo -e "${YELLOW}  wasm-pack not found, falling back to cargo + wasm-bindgen${NC}"
+    cargo build --target wasm32-unknown-unknown --release
+    mkdir -p pkg
+    wasm-bindgen --target web --out-dir pkg --no-typescript \
+        target/wasm32-unknown-unknown/release/motion_detector.wasm
+fi
+echo -e "${GREEN}==> WASM build complete${NC}"
+echo
+
+# ── Create dest if needed ─────────────────────────────────────────────────────
 if [[ ! -d "$DEST" ]]; then
     echo -e "${YELLOW}  creating $DEST${NC}"
     mkdir -p "$DEST"
 fi
+mkdir -p "$DEST/pkg"
 
-# ── Copy static files with rsync ───────────────────────────────────────────────
-# --checksum        only copy when content differs
-# No --delete: never remove manually-added server-side files
+# ── Deploy: explicit file list, no surprises ──────────────────────────────────
+echo -e "${GREEN}==> Copying frontend files...${NC}"
 
-rsync -av --checksum \
-    --exclude='.git/'         \
-    --exclude='src/'          \
-    --exclude='tests/'        \
-    --exclude='*.sh'          \
-    --exclude='*.md'          \
-    --exclude='*.toml'        \
-    --exclude='*.lock'        \
-    --exclude='*.bak'         \
-    --exclude='*.py'          \
-    --exclude='LICENSE*'      \
-    "$SRC/" "$DEST/"
+cp index.html style.css "$DEST/"
+cp script.js screenreader.js "$DEST/"
+
+# WASM artefacts (only the two files the browser needs)
+cp pkg/motion_detector.js "$DEST/pkg/"
+cp pkg/motion_detector_bg.wasm "$DEST/pkg/"
 
 echo
 echo -e "${GREEN}==> Done.${NC}"
