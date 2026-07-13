@@ -337,6 +337,11 @@ async function populateCameraList() {
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cameras = devices.filter((d) => d.kind === "videoinput");
 
+  console.info(
+    `[motion-detector] найдено камер: ${cameras.length} — ` +
+      cameras.map((c, i) => `[${i}] "${c.label || "(без названия)"}"`).join(", ")
+  );
+
   els.cameraSelect.innerHTML = "";
   cameras.forEach((cam, i) => {
     const opt = document.createElement("option");
@@ -353,10 +358,16 @@ async function attachStream(stream) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
   }
   els.video.srcObject = stream;
-  attachTrackDiagnostics(stream.getVideoTracks()[0]);
+  const track = stream.getVideoTracks()[0];
+  attachTrackDiagnostics(track);
   await new Promise((resolve) => els.video.addEventListener("loadedmetadata", resolve, { once: true }));
   cameraStartedAt = performance.now();
   darkFrameStreakStartedAt = null;
+  console.info(
+    `[motion-detector] выбрана камера: "${track.label || "(без названия)"}", ` +
+      `${els.video.videoWidth}x${els.video.videoHeight}, ` +
+      `readyState=${track.readyState}, muted=${track.muted}`
+  );
 }
 
 async function initCamera() {
