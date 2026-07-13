@@ -56,6 +56,8 @@ let activeVideoTrack = null;
 let cameraDiag = "ok"; // "ok" | "muted" | "ended" | "dark"
 let darkFrameStreakStartedAt = null;
 let cameraStartedAt = null;
+let frameReader = null;
+let usingTrackProcessor = false;
 
 // --- Camera-health diagnostics ---------------------------------------------
 // Answers "is there simply no video feed, or is the lens/shutter physically
@@ -260,19 +262,27 @@ function announceAlarm(now) {
 
 // --- Frame processing -------------------------------------------------------
 
-function processFrame(now) {
-  if (!motionDetector) return;
+function sourceDimensions(source) {
+  return source instanceof HTMLVideoElement
+    ? [source.videoWidth, source.videoHeight]
+    : [source.displayWidth, source.displayHeight]; // VideoFrame
+}
 
-  const scale = PROCESS_WIDTH / els.video.videoWidth;
+function processFrame(source, now) {
+  if (!motionDetector) return;
+  const [srcWidth, srcHeight] = sourceDimensions(source);
+  if (!srcWidth || !srcHeight) return;
+
+  const scale = PROCESS_WIDTH / srcWidth;
   const w = PROCESS_WIDTH;
-  const h = Math.round(els.video.videoHeight * scale);
+  const h = Math.round(srcHeight * scale);
   processCanvas.width = w;
   processCanvas.height = h;
-  processCtx.drawImage(els.video, 0, 0, w, h);
+  processCtx.drawImage(source, 0, 0, w, h);
 
-  els.displayCanvas.width = els.video.videoWidth;
-  els.displayCanvas.height = els.video.videoHeight;
-  displayCtx.drawImage(els.video, 0, 0);
+  els.displayCanvas.width = srcWidth;
+  els.displayCanvas.height = srcHeight;
+  displayCtx.drawImage(source, 0, 0);
 
   const { data } = processCtx.getImageData(0, 0, w, h);
   updateBrightnessDiagnostic(data, now);
@@ -304,12 +314,50 @@ function processFrame(now) {
 
 let lastFrameAt = 0;
 let rafHandle = null;
+
+// Fallback path for browsers without MediaStreamTrackProcessor: pull
+// frames from the <video> element via rAF, as before.
 function tick(now) {
-  if (els.video.readyState === els.video.HAVE_ENOUGH_DATA && now - lastFrameAt >= FRAME_INTERVAL_MS) {
+  if (
+    !usingTrackProcessor &&
+    els.video.readyState === els.video.HAVE_ENOUGH_DATA &&
+    now - lastFrameAt >= FRAME_INTERVAL_MS
+  ) {
     lastFrameAt = now;
-    processFrame(now);
+    processFrame(els.video, now);
   }
   rafHandle = requestAnimationFrame(tick);
+}
+
+// Preferred path: read decoded VideoFrames straight off the camera track.
+// This bypasses the <video> element's compositor entirely, which matters
+// on setups where drawImage() from a *playing, unpaused* <video> still
+// reads a black buffer - typically a GPU hardware-overlay/zero-copy
+// video path that never becomes software-readable through the element.
+async function readFrameLoop() {
+  const reader = frameReader;
+  while (reader === frameReader) {
+    let result;
+    try {
+      result = await reader.read();
+    } catch (error) {
+      console.error("[motion-detector] track processor read failed:", error);
+      break;
+    }
+    if (reader !== frameReader) {
+      if (result?.value) result.value.close();
+      break;
+    }
+    if (result.done) break;
+
+    const frame = result.value;
+    const now = performance.now();
+    if (now - lastFrameAt >= FRAME_INTERVAL_MS) {
+      lastFrameAt = now;
+      processFrame(frame, now);
+    }
+    frame.close();
+  }
 }
 
 // --- Camera ----------------------------------------------------------------
@@ -357,6 +405,7 @@ async function populateCameraList() {
 }
 
 async function attachStream(stream) {
+  stopFrameSource();
   if (els.video.srcObject) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
   }
@@ -368,19 +417,47 @@ async function attachStream(stream) {
   try {
     await els.video.play();
   } catch (error) {
-    // If autoplay is blocked here, drawImage will keep reading the
-    // element's initial (black) frame forever even though the track
-    // itself is "live" - this is the concrete failure mode, not a guess.
+    // If autoplay is blocked here, the fallback <video>+canvas path would
+    // keep reading the element's initial (black) frame forever even
+    // though the track itself is "live" - this is a concrete failure
+    // mode, not a guess. Doesn't matter if MediaStreamTrackProcessor ends
+    // up being used instead, but worth knowing either way.
     console.error("[motion-detector] video.play() failed:", error);
   }
 
   cameraStartedAt = performance.now();
   darkFrameStreakStartedAt = null;
+
+  if (typeof MediaStreamTrackProcessor !== "undefined") {
+    // Reads decoded VideoFrames straight off the track, bypassing the
+    // <video> element's compositor path entirely. On some GPU/driver
+    // combinations a playing, unpaused <video> is composited via a
+    // hardware overlay and drawImage() from it reads a black buffer -
+    // this sidesteps that class of bug rather than working around it.
+    usingTrackProcessor = true;
+    const processor = new MediaStreamTrackProcessor({ track });
+    frameReader = processor.readable.getReader();
+    readFrameLoop();
+    console.info("[motion-detector] источник кадров: MediaStreamTrackProcessor (в обход <video>/canvas)");
+  } else {
+    usingTrackProcessor = false;
+    console.info("[motion-detector] источник кадров: <video> + canvas (MediaStreamTrackProcessor не поддерживается)");
+  }
+
   console.info(
     `[motion-detector] выбрана камера: "${track.label || "(без названия)"}", ` +
       `${els.video.videoWidth}x${els.video.videoHeight}, ` +
       `readyState=${track.readyState}, muted=${track.muted}, paused=${els.video.paused}`
   );
+}
+
+function stopFrameSource() {
+  if (frameReader) {
+    const reader = frameReader;
+    frameReader = null;
+    reader.cancel().catch(() => {});
+  }
+  usingTrackProcessor = false;
 }
 
 async function initCamera() {
@@ -407,6 +484,7 @@ async function switchCamera(deviceId) {
 els.cameraSelect.addEventListener("change", () => switchCamera(els.cameraSelect.value));
 
 function stopCamera() {
+  stopFrameSource();
   if (els.video.srcObject) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
     els.video.srcObject = null;
