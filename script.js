@@ -106,7 +106,10 @@ function updateBrightnessDiagnostic(data, now) {
 
   const brightness = averageBrightness(data);
   if (now - lastBrightnessLogAt > 1000) {
-    console.debug(`[motion-detector] средняя яркость кадра: ${brightness.toFixed(1)}/255`);
+    console.debug(
+      `[motion-detector] яркость: ${brightness.toFixed(1)}/255, ` +
+        `video.currentTime=${els.video.currentTime.toFixed(2)}, paused=${els.video.paused}`
+    );
     lastBrightnessLogAt = now;
   }
 
@@ -361,12 +364,22 @@ async function attachStream(stream) {
   const track = stream.getVideoTracks()[0];
   attachTrackDiagnostics(track);
   await new Promise((resolve) => els.video.addEventListener("loadedmetadata", resolve, { once: true }));
+
+  try {
+    await els.video.play();
+  } catch (error) {
+    // If autoplay is blocked here, drawImage will keep reading the
+    // element's initial (black) frame forever even though the track
+    // itself is "live" - this is the concrete failure mode, not a guess.
+    console.error("[motion-detector] video.play() failed:", error);
+  }
+
   cameraStartedAt = performance.now();
   darkFrameStreakStartedAt = null;
   console.info(
     `[motion-detector] выбрана камера: "${track.label || "(без названия)"}", ` +
       `${els.video.videoWidth}x${els.video.videoHeight}, ` +
-      `readyState=${track.readyState}, muted=${track.muted}`
+      `readyState=${track.readyState}, muted=${track.muted}, paused=${els.video.paused}`
   );
 }
 
