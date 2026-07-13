@@ -85,6 +85,18 @@ section {
   border-color: var(--alarm);
 }
 
+.diagnostics {
+  min-height: 1.2rem;
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--countdown);
+}
+
+.diagnostics:empty {
+  margin-top: 0;
+}
+
 .camera-preview {
   margin-top: 1rem;
   display: flex;
@@ -98,16 +110,10 @@ section {
   border: 1px solid var(--border);
 }
 
-/* The live camera feed itself is decorative for a screen-reader user; the
-   processed canvas mirrors it for sighted testers. Kept off-screen rather
-   than display:none, since some browsers throttle decoding of display:none
-   video elements. */
 .camera-preview video {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  max-width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
 }
 
 .field {

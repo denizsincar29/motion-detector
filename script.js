@@ -32,6 +32,8 @@ const els = {
   soundFile: document.getElementById("sound-file"),
   sirenToggle: document.getElementById("siren-toggle"),
   alarmAudio: document.getElementById("alarm-audio"),
+  diagnostics: document.getElementById("diagnostics"),
+  cameraField: document.getElementById("camera-field"),
 };
 
 const displayCtx = els.displayCanvas.getContext("2d");
@@ -50,6 +52,60 @@ let lastSpokeAt = 0;
 let motionStreakStartedAt = null; // timestamp when the current unbroken motion streak began
 let countdownTimer = null;
 let objectSoundUrl = null; // set when a local file is chosen, revoked on replace
+let activeVideoTrack = null;
+let cameraDiag = "ok"; // "ok" | "muted" | "ended" | "dark"
+let darkFrameStreakStartedAt = null;
+
+// --- Camera-health diagnostics ---------------------------------------------
+// Answers "is there simply no video feed, or is the lens/shutter physically
+// covered": getUserMedia succeeding only means the OS granted a stream, not
+// that frames contain a picture. A hardware privacy shutter (common on
+// laptops, including yours) typically surfaces as the MediaStreamTrack
+// going "muted" - the browser's own signal that no data is arriving at the
+// hardware level. A near-black picture despite an unmuted, live track is
+// the other case: the shutter/lens cap is physically blocking the sensor.
+
+const DIAGNOSTIC_TEXT = {
+  ok: "",
+  muted: "Видео с камеры не поступает на аппаратном уровне — похоже, шторка камеры закрыта или она отключена системным переключателем.",
+  ended: "Видеодорожка остановлена — камера отвалилась или её забрала другая программа.",
+  dark: "Кадры почти полностью чёрные — камера передаёт видео, но объектив, похоже, чем-то закрыт.",
+};
+
+function setDiagnostic(next) {
+  if (cameraDiag === next) return;
+  cameraDiag = next;
+  els.diagnostics.textContent = DIAGNOSTIC_TEXT[next];
+  if (next !== "ok") speak(DIAGNOSTIC_TEXT[next]);
+}
+
+function averageBrightness(data) {
+  // Cheap sample: every 16th byte (~every 4th pixel's red channel) is
+  // plenty to tell "near-black" from "has a picture" without summing the
+  // whole buffer every frame.
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < data.length; i += 16) {
+    sum += data[i];
+    count++;
+  }
+  return count ? sum / count : 0;
+}
+
+const DARK_THRESHOLD = 10; // 0..255, "basically black"
+const DARK_HOLD_MS = 1500; // how long it must stay black before we say so
+
+function updateBrightnessDiagnostic(data, now) {
+  if (cameraDiag === "muted" || cameraDiag === "ended") return; // those take priority
+  const brightness = averageBrightness(data);
+  if (brightness < DARK_THRESHOLD) {
+    if (darkFrameStreakStartedAt === null) darkFrameStreakStartedAt = now;
+    if (now - darkFrameStreakStartedAt >= DARK_HOLD_MS) setDiagnostic("dark");
+  } else {
+    darkFrameStreakStartedAt = null;
+    if (cameraDiag === "dark") setDiagnostic("ok");
+  }
+}
 
 // --- Settings, read live from the controls -------------------------------
 
@@ -204,6 +260,7 @@ function processFrame(now) {
   displayCtx.drawImage(els.video, 0, 0);
 
   const { data } = processCtx.getImageData(0, 0, w, h);
+  updateBrightnessDiagnostic(data, now);
   motionDetector.set_size(w, h);
   const result = motionDetector.process_frame(data);
 
@@ -242,28 +299,102 @@ function tick(now) {
 
 // --- Camera ----------------------------------------------------------------
 
-async function initCamera() {
+function attachTrackDiagnostics(track) {
+  activeVideoTrack = track;
+  const evaluate = () => {
+    if (track.readyState === "ended") setDiagnostic("ended");
+    else if (track.muted) setDiagnostic("muted");
+    else if (cameraDiag === "muted" || cameraDiag === "ended") setDiagnostic("ok");
+  };
+  track.addEventListener("mute", evaluate);
+  track.addEventListener("unmute", evaluate);
+  track.addEventListener("ended", evaluate);
+  evaluate();
+}
+
+async function openStream(deviceId) {
+  const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: true };
+  return navigator.mediaDevices.getUserMedia(constraints);
+}
+
+/** Populate the camera <select> with real device labels; hide it entirely
+ *  if there's nothing to choose between (the common desktop case: one
+ *  webcam, no "front/back" concept). Labels are only available *after*
+ *  permission was granted, hence this runs after the first getUserMedia. */
+async function populateCameraList() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cameras = devices.filter((d) => d.kind === "videoinput");
+
+  els.cameraSelect.innerHTML = "";
+  cameras.forEach((cam, i) => {
+    const opt = document.createElement("option");
+    opt.value = cam.deviceId;
+    opt.textContent = cam.label || `Камера ${i + 1}`;
+    els.cameraSelect.appendChild(opt);
+  });
+
+  els.cameraField.hidden = cameras.length <= 1;
+}
+
+async function attachStream(stream) {
   if (els.video.srcObject) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
   }
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: els.cameraSelect.value },
-  });
   els.video.srcObject = stream;
+  attachTrackDiagnostics(stream.getVideoTracks()[0]);
   await new Promise((resolve) => els.video.addEventListener("loadedmetadata", resolve, { once: true }));
+}
+
+async function initCamera() {
+  const stream = await openStream(); // no deviceId yet - just get permission + a default camera
+  await attachStream(stream);
+  await populateCameraList();
   motionDetector = new wasm.MotionDetector(els.video.videoWidth, els.video.videoHeight);
   refreshSensitivityLabel(); // apply current sensitivity to the fresh detector
 }
+
+/** Switch to a specific camera once the list is known (select "change"). */
+async function switchCamera(deviceId) {
+  try {
+    const stream = await openStream(deviceId);
+    await attachStream(stream);
+    // motionDetector stays alive; set_size() in the frame loop clears its
+    // buffer automatically if the new camera's resolution differs.
+  } catch (error) {
+    console.error("Error switching camera:", error);
+    alert("Не удалось переключиться на выбранную камеру.");
+  }
+}
+
+els.cameraSelect.addEventListener("change", () => switchCamera(els.cameraSelect.value));
 
 function stopCamera() {
   if (els.video.srcObject) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
     els.video.srcObject = null;
   }
+  activeVideoTrack = null;
   motionDetector = null;
+  darkFrameStreakStartedAt = null;
+  cameraDiag = "ok";
+  els.diagnostics.textContent = "";
 }
 
 // --- Start / stop / delayed start ------------------------------------------
+
+const CAMERA_ERROR_MESSAGES = {
+  NotFoundError: "Камера не найдена системой — физически не подключена или отключена в диспетчере устройств.",
+  DevicesNotFoundError: "Камера не найдена системой — физически не подключена или отключена в диспетчере устройств.",
+  NotAllowedError: "Доступ к камере запрещён — проверь разрешения браузера и системные настройки приватности.",
+  PermissionDeniedError: "Доступ к камере запрещён — проверь разрешения браузера и системные настройки приватности.",
+  NotReadableError: "Камера не отвечает на уровне железа — либо занята другой программой, либо аппаратно заблокирована (шторка/переключатель на корпусе).",
+  TrackStartError: "Камера не отвечает на уровне железа — либо занята другой программой, либо аппаратно заблокирована (шторка/переключатель на корпусе).",
+  OverconstrainedError: "Не удалось подобрать камеру под заданные параметры.",
+};
+
+function cameraErrorMessage(error) {
+  return CAMERA_ERROR_MESSAGES[error.name] || `Не удалось получить доступ к камере (${error.name || error.message}).`;
+}
 
 async function start() {
   await wasmReady;
@@ -274,7 +405,7 @@ async function start() {
     await initCamera();
   } catch (error) {
     console.error("Error accessing camera:", error);
-    alert("Не удалось получить доступ к камере. Проверь разрешения.");
+    alert(cameraErrorMessage(error));
     els.startStop.textContent = "Старт";
     els.startStop.classList.remove("is-active");
     return;
@@ -324,6 +455,11 @@ function stop() {
 
 els.startStop.addEventListener("click", () => {
   if (state === "idle") {
+    // Must happen synchronously inside the click, not after the camera's
+    // awaits - otherwise the browser no longer considers this a user
+    // gesture and keeps the AudioContext suspended (silent) forever.
+    ensureSirenNodes();
+    audioCtx.resume();
     start();
   } else {
     stop();

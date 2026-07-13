@@ -16,6 +16,7 @@
   <section aria-labelledby="status-heading">
     <h2 id="status-heading" class="visually-hidden">Текущее состояние</h2>
     <div id="status" class="status status--idle">Не запущено</div>
+    <div id="diagnostics" class="diagnostics" aria-live="polite"></div>
     <div class="camera-preview">
       <video id="video" autoplay muted playsinline></video>
       <canvas id="canvas"></canvas>
@@ -37,13 +38,11 @@
 
   <section aria-labelledby="camera-heading">
     <h2 id="camera-heading">Камера</h2>
-    <div class="field">
+    <div class="field" id="camera-field" hidden>
       <label for="camera-select">Какая камера</label>
-      <select id="camera-select">
-        <option value="user">Фронтальная</option>
-        <option value="environment">Основная (задняя)</option>
-      </select>
+      <select id="camera-select"></select>
     </div>
+    <p class="hint">Список появится после первого запуска (браузер показывает названия камер только после разрешения на доступ). Если камера одна, выбор не показывается — выбирать не из чего.</p>
   </section>
 
   <section aria-labelledby="sensitivity-heading">
