@@ -55,6 +55,7 @@ let objectSoundUrl = null; // set when a local file is chosen, revoked on replac
 let activeVideoTrack = null;
 let cameraDiag = "ok"; // "ok" | "muted" | "ended" | "dark"
 let darkFrameStreakStartedAt = null;
+let cameraStartedAt = null;
 
 // --- Camera-health diagnostics ---------------------------------------------
 // Answers "is there simply no video feed, or is the lens/shutter physically
@@ -80,24 +81,35 @@ function setDiagnostic(next) {
 }
 
 function averageBrightness(data) {
-  // Cheap sample: every 16th byte (~every 4th pixel's red channel) is
-  // plenty to tell "near-black" from "has a picture" without summing the
-  // whole buffer every frame.
+  // Luma (matches the grayscale weights used in the wasm module), not a
+  // single channel. Sampling red alone caused false "dark" reports under
+  // cool-toned lighting where the red channel legitimately reads low even
+  // though the picture is perfectly visible.
   let sum = 0;
   let count = 0;
   for (let i = 0; i < data.length; i += 16) {
-    sum += data[i];
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     count++;
   }
   return count ? sum / count : 0;
 }
 
-const DARK_THRESHOLD = 10; // 0..255, "basically black"
-const DARK_HOLD_MS = 1500; // how long it must stay black before we say so
+const DARK_THRESHOLD = 12; // 0..255, "basically black"
+const DARK_HOLD_MS = 2000; // how long it must stay black before we say so
+const EXPOSURE_GRACE_MS = 2000; // ignore brightness right after camera start - auto-exposure needs a moment
+
+let lastBrightnessLogAt = 0;
 
 function updateBrightnessDiagnostic(data, now) {
   if (cameraDiag === "muted" || cameraDiag === "ended") return; // those take priority
+  if (cameraStartedAt !== null && now - cameraStartedAt < EXPOSURE_GRACE_MS) return; // let auto-exposure settle
+
   const brightness = averageBrightness(data);
+  if (now - lastBrightnessLogAt > 1000) {
+    console.debug(`[motion-detector] средняя яркость кадра: ${brightness.toFixed(1)}/255`);
+    lastBrightnessLogAt = now;
+  }
+
   if (brightness < DARK_THRESHOLD) {
     if (darkFrameStreakStartedAt === null) darkFrameStreakStartedAt = now;
     if (now - darkFrameStreakStartedAt >= DARK_HOLD_MS) setDiagnostic("dark");
@@ -343,6 +355,8 @@ async function attachStream(stream) {
   els.video.srcObject = stream;
   attachTrackDiagnostics(stream.getVideoTracks()[0]);
   await new Promise((resolve) => els.video.addEventListener("loadedmetadata", resolve, { once: true }));
+  cameraStartedAt = performance.now();
+  darkFrameStreakStartedAt = null;
 }
 
 async function initCamera() {
@@ -376,6 +390,7 @@ function stopCamera() {
   activeVideoTrack = null;
   motionDetector = null;
   darkFrameStreakStartedAt = null;
+  cameraStartedAt = null;
   cameraDiag = "ok";
   els.diagnostics.textContent = "";
 }
