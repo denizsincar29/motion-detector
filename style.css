@@ -1,12 +1,206 @@
+:root {
+  --bg: #14181c;
+  --panel: #1c2227;
+  --text: #e8ecef;
+  --muted: #9aa5ac;
+  --border: #303840;
+  --idle: #6b7280;
+  --countdown: #f5a623;
+  --armed: #2dd4bf;
+  --alarm: #ef4444;
+  --focus: #7dd3fc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  max-width: 40rem;
+  margin-inline: auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+header p {
+  color: var(--muted);
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin-bottom: 0.25rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+section {
+  margin-block: 1.75rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: -0.5rem;
+}
+
+.status {
+  font-size: 1.3rem;
+  font-weight: 600;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  border: 2px solid transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.status--idle {
+  background: var(--panel);
+  color: var(--idle);
+  border-color: var(--idle);
+}
+
+.status--countdown {
+  background: var(--panel);
+  color: var(--countdown);
+  border-color: var(--countdown);
+}
+
+.status--armed {
+  background: var(--panel);
+  color: var(--armed);
+  border-color: var(--armed);
+}
+
+.status--alarm {
+  background: var(--alarm);
+  color: #fff;
+  border-color: var(--alarm);
+}
+
+.camera-preview {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.camera-preview video,
+.camera-preview canvas {
+  max-width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+}
+
+/* The live camera feed itself is decorative for a screen-reader user; the
+   processed canvas mirrors it for sighted testers. Kept off-screen rather
+   than display:none, since some browsers throttle decoding of display:none
+   video elements. */
+.camera-preview video {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-block: 0.75rem;
+}
+
+.field label {
+  font-weight: 500;
+}
+
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.field--inline label {
+  font-weight: 400;
+}
+
+.field--checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+.field--checkbox input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+input[type="range"] {
+  width: 100%;
+  max-width: 20rem;
+}
+
+input[type="text"],
+input[type="url"],
+select,
+input[type="file"] {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.5rem;
+  max-width: 24rem;
+}
+
+button {
+  background: var(--armed);
+  color: #06201c;
+  border: none;
+  border-radius: 0.4rem;
+  padding: 0.6rem 1.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.is-active {
+  background: var(--alarm);
+  color: #fff;
+}
+
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .visually-hidden {
-    position: absolute;
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    padding: 0 !important;
-    margin: -1px !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    white-space: nowrap !important;
-    border: 0 !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status {
+    transition: none;
+  }
 }

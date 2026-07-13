@@ -1,16 +1,16 @@
-export function speak(text, priority) {
-    var el = document.createElement('div')
-    var id = 'speak-' + Date.now()
-    el.setAttribute('id', id)
-    el.setAttribute('aria-live', priority || 'polite')
-    el.classList.add('visually-hidden')
-    document.body.appendChild(el)
+export function speak(text, priority = "polite") {
+  const el = document.createElement("div");
+  el.setAttribute("aria-live", priority);
+  el.classList.add("visually-hidden");
+  document.body.appendChild(el);
 
-    window.setTimeout(function () {
-        document.getElementById(id).innerHTML = text
-    }, 100)
+  // aria-live regions only announce content set *after* they're in the DOM,
+  // so the text is set on the next tick rather than at creation time.
+  window.setTimeout(() => {
+    el.textContent = text;
+  }, 100);
 
-    window.setTimeout(function () {
-        document.body.removeChild(document.getElementById(id))
-    }, 1000)
+  window.setTimeout(() => {
+    el.remove();
+  }, 1000);
 }

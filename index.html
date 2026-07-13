@@ -1,23 +1,98 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Motion detector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Детектор движения</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Motion detector</h1>
-<p>Detects motion using the device camera.</p>
-<div>
-  <label for="camera-select">Camera: </label>
-  <select id="camera-select">
-    <option value="user">Front Camera</option>
-    <option value="environment">Back Camera</option>
-  </select>
-</div>
-<video id="video" width="640" height="480" autoplay></video>
-<canvas id="canvas" width="640" height="480"></canvas>
-<div id="motion">No motion detected</div>
+<header>
+  <h1>Детектор движения</h1>
+  <p>Следит за камерой и поднимает тревогу, когда движение не прекращается достаточно долго. Короткие мелькания (муха, тень, свет) игнорируются.</p>
+</header>
+
+<main>
+  <section aria-labelledby="status-heading">
+    <h2 id="status-heading" class="visually-hidden">Текущее состояние</h2>
+    <div id="status" class="status status--idle">Не запущено</div>
+    <div class="camera-preview">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+    </div>
+  </section>
+
+  <section aria-labelledby="controls-heading">
+    <h2 id="controls-heading">Управление</h2>
+    <div class="controls-row">
+      <button id="start-stop" type="button">Старт</button>
+      <div class="field field--inline">
+        <label for="delay">Задержка запуска, с</label>
+        <input id="delay" type="range" min="0" max="60" step="1" value="0">
+        <span id="delay-value" aria-hidden="true">0 с</span>
+      </div>
+    </div>
+    <p class="hint">Задержка даёт время уйти из кадра, прежде чем детектор начнёт считать твоё собственное движение тревогой.</p>
+  </section>
+
+  <section aria-labelledby="camera-heading">
+    <h2 id="camera-heading">Камера</h2>
+    <div class="field">
+      <label for="camera-select">Какая камера</label>
+      <select id="camera-select">
+        <option value="user">Фронтальная</option>
+        <option value="environment">Основная (задняя)</option>
+      </select>
+    </div>
+  </section>
+
+  <section aria-labelledby="sensitivity-heading">
+    <h2 id="sensitivity-heading">Чувствительность и длительность</h2>
+
+    <div class="field">
+      <label for="sensitivity">Чувствительность</label>
+      <input id="sensitivity" type="range" min="1" max="100" step="1" value="50">
+      <span id="sensitivity-value" aria-hidden="true">50%</span>
+    </div>
+    <p class="hint">Чем выше, тем меньше изменений в кадре нужно, чтобы засчитать движение. Слишком высокая чувствительность реагирует на шум камеры и лёгкие тени.</p>
+
+    <div class="field">
+      <label for="duration">Длительность движения, с</label>
+      <input id="duration" type="range" min="0.2" max="5" step="0.1" value="1.5">
+      <span id="duration-value" aria-hidden="true">1.5 с</span>
+    </div>
+    <p class="hint">Тревога сработает, только если движение непрерывно длится дольше этого времени. Короткие мелькания не считаются — это и есть защита от ложных срабатываний.</p>
+  </section>
+
+  <section aria-labelledby="alarm-heading">
+    <h2 id="alarm-heading">Тревога</h2>
+
+    <div class="field">
+      <label for="message">Сообщение при тревоге</label>
+      <input id="message" type="text" placeholder="Обнаружено движение">
+    </div>
+
+    <div class="field">
+      <label for="sound-url">URL звукового файла тревоги</label>
+      <input id="sound-url" type="url" placeholder="https://example.com/alarm.mp3">
+    </div>
+    <p class="hint">Необязательно. Можно указать ссылку на MP3/WAV, либо выбрать файл ниже — выбранный файл имеет приоритет над ссылкой. Если ничего не задано, будет использован только голосовой анонс для скринридера.</p>
+
+    <div class="field">
+      <label for="sound-file">Или выбрать звуковой файл</label>
+      <input id="sound-file" type="file" accept="audio/*">
+    </div>
+
+    <div class="field field--checkbox">
+      <input id="siren-toggle" type="checkbox">
+      <label for="siren-toggle">Экспериментально: звуковая сирена</label>
+    </div>
+    <p class="hint">Пока запущено, играет непрерывный тон, чья высота растёт вместе с интенсивностью движения в кадре — что-то вроде воющей сирены. Не связано с длительностью выше: реагирует на любое движение сразу, для наглядной обратной связи.</p>
+  </section>
+</main>
+
+<audio id="alarm-audio"></audio>
+
 <script src="script.js" type="module"></script>
 </body>
 </html>
