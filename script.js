@@ -37,6 +37,13 @@ const els = {
   torchField: document.getElementById("torch-field"),
   torchHint: document.getElementById("torch-hint"),
   torchToggle: document.getElementById("torch-toggle"),
+  calibrateStart: document.getElementById("calibrate-start"),
+  calibrationPanel: document.getElementById("calibration-panel"),
+  calibrationStatus: document.getElementById("calibration-status"),
+  calibrationAction: document.getElementById("calibration-action"),
+  calibrationYesNo: document.getElementById("calibration-yesno"),
+  calibrationApply: document.getElementById("calibration-apply"),
+  calibrationDiscard: document.getElementById("calibration-discard"),
 };
 
 const displayCtx = els.displayCanvas.getContext("2d");
@@ -46,7 +53,7 @@ const wasmReady = wasm.default();
 const processCanvas = document.createElement("canvas");
 const processCtx = processCanvas.getContext("2d", { willReadFrequently: true });
 
-/** @typedef {"idle"|"countdown"|"armed"|"alarm"} AppState */
+/** @typedef {"idle"|"countdown"|"armed"|"alarm"|"calibrating"} AppState */
 /** @type {AppState} */
 let state = "idle";
 
@@ -63,6 +70,16 @@ let darkFrameStreakStartedAt = null;
 let cameraStartedAt = null;
 let frameReader = null;
 let usingTrackProcessor = false;
+
+// --- Calibration wizard state -----------------------------------------------
+let calNoiseFloor = 0; // max last_change_ratio observed while standing still
+let calStillTimer = null; // set while the "still" phase's timer is pending
+let calMoveActive = false; // true once the "move" phase has started
+let calMoveStartedAt = 0;
+let calAboveFloorMs = 0; // total time during the move phase spent above calNoiseFloor
+let calLastFrameAt = null; // for computing per-frame dt during calibration
+let calProposedPct = 50;
+let calProposedDurationS = 1;
 
 // --- Camera-health diagnostics ---------------------------------------------
 // Answers "is there simply no video feed, or is the lens/shutter physically
@@ -197,20 +214,45 @@ function alarmSoundSrc() {
 // --- Slider readouts (kept in sync so sighted users see the same numbers
 // a screen reader gets from the native range input's accessible value) ---
 
+// --- Sensitivity slider <-> wasm parameter mapping ------------------------
+// Shared by the slider itself and the calibration wizard, which needs to
+// go the other way (measured ratio -> slider position to propose).
+
+const SENSITIVITY_MIN_RATIO = 0.01; // most sensitive
+const SENSITIVITY_MAX_RATIO = 0.3; // least sensitive
+const THRESHOLD_MIN = 10; // most sensitive
+const THRESHOLD_MAX = 40; // least sensitive
+
+function sensitivityPctToRatio(pct) {
+  return SENSITIVITY_MAX_RATIO - (pct - 1) * ((SENSITIVITY_MAX_RATIO - SENSITIVITY_MIN_RATIO) / 99);
+}
+
+function sensitivityPctToThreshold(pct) {
+  return Math.round(THRESHOLD_MAX - (pct - 1) * ((THRESHOLD_MAX - THRESHOLD_MIN) / 99));
+}
+
+function ratioToSensitivityPct(ratio) {
+  const clamped = Math.min(SENSITIVITY_MAX_RATIO, Math.max(SENSITIVITY_MIN_RATIO, ratio));
+  const pct = 1 + (SENSITIVITY_MAX_RATIO - clamped) * (99 / (SENSITIVITY_MAX_RATIO - SENSITIVITY_MIN_RATIO));
+  return Math.round(pct);
+}
+
+function clampDurationSeconds(seconds) {
+  return Math.min(5, Math.max(0.2, seconds));
+}
+
 function refreshSensitivityLabel() {
   els.sensitivityValue.textContent = `${els.sensitivity.value}%`;
   if (motionDetector) {
     const pct = Number(els.sensitivity.value);
-    // Sensitivity slider: 1 (least sensitive) .. 100 (most sensitive).
-    // Two knobs on the wasm side move together: how much of the frame
-    // must change (motion_ratio) and how much a single pixel must change
-    // to count at all (threshold). Only tuning the former left threshold
+    // Two knobs on the wasm side move together: how much of the frame must
+    // change (motion_ratio) and how much a single pixel must change to
+    // count at all (threshold). Only tuning the former left threshold
     // stuck at a fixed value that no slider setting could get under.
-    const ratio = 0.3 - (pct - 1) * (0.29 / 99); // 30% .. 1%
+    const ratio = sensitivityPctToRatio(pct);
     motionDetector.motion_ratio = ratio;
     currentMotionRatio = ratio;
-    const threshold = Math.round(40 - (pct - 1) * (30 / 99)); // 40 .. 10
-    motionDetector.threshold = threshold;
+    motionDetector.threshold = sensitivityPctToThreshold(pct);
   }
 }
 
@@ -356,6 +398,11 @@ function processFrame(source, now) {
         `порог срабатывания: ${(currentMotionRatio * 100).toFixed(1)}%, результат: ${resultText}`
     );
     lastMotionLogAt = now;
+  }
+
+  if (state === "calibrating") {
+    onCalibrationFrame(motionDetector.last_change_ratio, now);
+    return;
   }
 
   if (state !== "countdown") {
@@ -589,6 +636,7 @@ async function start() {
   await wasmReady;
   els.startStop.textContent = "Стоп";
   els.startStop.classList.add("is-active");
+  els.calibrateStart.disabled = true;
 
   try {
     await initCamera();
@@ -597,6 +645,7 @@ async function start() {
     alert(cameraErrorMessage(error));
     els.startStop.textContent = "Старт";
     els.startStop.classList.remove("is-active");
+    els.calibrateStart.disabled = false;
     return;
   }
 
@@ -640,6 +689,7 @@ function stop() {
   setStatus("idle");
   els.startStop.textContent = "Старт";
   els.startStop.classList.remove("is-active");
+  els.calibrateStart.disabled = false;
 }
 
 els.startStop.addEventListener("click", () => {
@@ -654,5 +704,152 @@ els.startStop.addEventListener("click", () => {
     stop();
   }
 });
+
+// --- Calibration wizard -----------------------------------------------------
+// Measures the actual noise floor in front of the camera right now (nobody
+// holds perfectly still, lights flicker, compression adds jitter) and
+// proposes a sensitivity/duration pair from real numbers instead of
+// guessing at abstract percentages.
+
+const STILL_SAMPLE_MS = 4000;
+
+function calSetStatus(text) {
+  els.calibrationStatus.textContent = text;
+}
+
+function showCalAction(label, handler) {
+  els.calibrationAction.textContent = label;
+  els.calibrationAction.hidden = false;
+  els.calibrationAction.onclick = handler;
+}
+
+function hideCalAction() {
+  els.calibrationAction.hidden = true;
+  els.calibrationAction.onclick = null;
+}
+
+async function startCalibration() {
+  if (state !== "idle") return;
+  els.calibrateStart.hidden = true;
+  els.startStop.disabled = true;
+  els.calibrationPanel.hidden = false;
+  els.calibrationYesNo.hidden = true;
+  calSetStatus("Включаю камеру...");
+
+  try {
+    await wasmReady;
+    await initCamera();
+  } catch (error) {
+    console.error("[motion-detector] camera error during calibration:", error);
+    alert(cameraErrorMessage(error));
+    endCalibration();
+    return;
+  }
+
+  setStatus("calibrating", "Калибровка идёт — подробности в панели ниже.");
+  rafHandle = requestAnimationFrame(tick);
+
+  calNoiseFloor = 0;
+  calLastFrameAt = null;
+  calSetStatus("Встань перед камерой в обычном положении и не двигайся. Когда будешь готов — нажми кнопку.");
+  speak("Встань перед камерой и не двигайся. Когда будешь готов, нажми кнопку записи фона.");
+  showCalAction("Я стою неподвижно — начать запись", beginStillPhase);
+}
+
+function beginStillPhase() {
+  hideCalAction();
+  calNoiseFloor = 0;
+  calLastFrameAt = null;
+  calStillTimer = setTimeout(beginMovePhase, STILL_SAMPLE_MS);
+  calSetStatus("Записываю фон, не двигайся ещё несколько секунд...");
+  speak("Записываю фон, не двигайся четыре секунды.");
+}
+
+function beginMovePhase() {
+  calStillTimer = null;
+  calMoveActive = true;
+  calMoveStartedAt = performance.now();
+  calAboveFloorMs = 0;
+  calLastFrameAt = null;
+  calSetStatus("Теперь подвигайся перед камерой — помаши руками, пройдись. Нажми «Стоп», когда закончишь.");
+  speak("Теперь подвигайся перед камерой. Нажми стоп, когда закончишь.");
+  showCalAction("Стоп, закончил двигаться", finishMovePhase);
+}
+
+function finishMovePhase() {
+  hideCalAction();
+  calMoveActive = false;
+  const totalMoveS = (performance.now() - calMoveStartedAt) / 1000;
+  const movedS = calAboveFloorMs / 1000;
+
+  // Threshold: comfortably above the observed noise floor, never below the
+  // slider's own minimum. Duration: noisier background -> longer debounce,
+  // since a jittery floor is more likely to throw brief false spikes.
+  const proposedRatio = Math.min(SENSITIVITY_MAX_RATIO, Math.max(SENSITIVITY_MIN_RATIO, calNoiseFloor * 1.6 + 0.01));
+  calProposedPct = ratioToSensitivityPct(proposedRatio);
+  calProposedDurationS = clampDurationSeconds(calNoiseFloor > 0.05 ? 0.8 : calNoiseFloor > 0.02 ? 0.5 : 0.3);
+
+  const summary =
+    `Фон: ${(calNoiseFloor * 100).toFixed(1)} процента. ` +
+    `Во время движения оно засекалось ${movedS.toFixed(1)} секунды из ${totalMoveS.toFixed(1)}. ` +
+    `Предлагаю чувствительность ${calProposedPct} процентов и задержку ${calProposedDurationS.toFixed(1)} секунды. Применить?`;
+
+  calSetStatus(summary);
+  speak(summary);
+  els.calibrationYesNo.hidden = false;
+}
+
+function onCalibrationFrame(ratio, now) {
+  const dt = calLastFrameAt !== null ? now - calLastFrameAt : 0;
+  calLastFrameAt = now;
+
+  if (calStillTimer !== null) {
+    if (ratio > calNoiseFloor) calNoiseFloor = ratio;
+    return;
+  }
+
+  if (calMoveActive && ratio > calNoiseFloor) {
+    calAboveFloorMs += dt;
+  }
+}
+
+function applyCalibration() {
+  els.sensitivity.value = String(calProposedPct);
+  refreshSensitivityLabel();
+  els.duration.value = calProposedDurationS.toFixed(1);
+  refreshDurationLabel();
+  speak("Настройки применены.");
+  endCalibration();
+}
+
+function discardCalibration() {
+  speak("Изменения не применены, старые настройки сохранены.");
+  endCalibration();
+}
+
+function endCalibration() {
+  if (calStillTimer) {
+    clearTimeout(calStillTimer);
+    calStillTimer = null;
+  }
+  calMoveActive = false;
+  hideCalAction();
+  els.calibrationYesNo.hidden = true;
+  els.calibrationPanel.hidden = true;
+  els.calibrateStart.hidden = false;
+  els.startStop.disabled = false;
+  calSetStatus("");
+
+  if (rafHandle) {
+    cancelAnimationFrame(rafHandle);
+    rafHandle = null;
+  }
+  stopCamera();
+  setStatus("idle");
+}
+
+els.calibrateStart.addEventListener("click", startCalibration);
+els.calibrationApply.addEventListener("click", applyCalibration);
+els.calibrationDiscard.addEventListener("click", discardCalibration);
 
 setStatus("idle");

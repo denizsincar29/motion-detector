@@ -51,6 +51,20 @@
     <p class="hint" id="torch-hint" hidden>В темноте обычная камера физически не видит движение — светочувствительности не хватает. Если камера (обычно задняя на телефоне) поддерживает подсветку, этот переключатель её включает.</p>
   </section>
 
+  <section aria-labelledby="calibration-heading">
+    <h2 id="calibration-heading">Калибровка</h2>
+    <p class="hint">Подбирает чувствительность и задержку под текущее освещение и камеру прямо сейчас, вместо подбора вручную на глаз.</p>
+    <button id="calibrate-start" type="button">Начать калибровку</button>
+    <div id="calibration-panel" hidden>
+      <p id="calibration-status" aria-live="polite"></p>
+      <button id="calibration-action" type="button" hidden></button>
+      <div id="calibration-yesno" hidden>
+        <button id="calibration-apply" type="button">Применить</button>
+        <button id="calibration-discard" type="button">Отменить</button>
+      </div>
+    </div>
+  </section>
+
   <section aria-labelledby="sensitivity-heading">
     <h2 id="sensitivity-heading">Чувствительность и длительность</h2>
 

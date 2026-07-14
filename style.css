@@ -67,7 +67,8 @@ section {
   border-color: var(--idle);
 }
 
-.status--countdown {
+.status--countdown,
+.status--calibrating {
   background: var(--panel);
   color: var(--countdown);
   border-color: var(--countdown);
@@ -136,6 +137,34 @@ section {
 
 .field--inline label {
   font-weight: 400;
+}
+
+#calibration-panel {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+#calibration-status {
+  margin: 0 0 0.75rem;
+}
+
+#calibration-yesno {
+  display: flex;
+  gap: 0.75rem;
+}
+
+#calibration-discard {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .field--checkbox {
