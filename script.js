@@ -211,8 +211,89 @@ function alarmSoundSrc() {
   return objectSoundUrl || els.soundUrl.value.trim() || null;
 }
 
-// --- Slider readouts (kept in sync so sighted users see the same numbers
-// a screen reader gets from the native range input's accessible value) ---
+// --- Settings persistence: localStorage + shareable URL params ------------
+// Priority: URL query params > localStorage > the HTML defaults. Whatever
+// wins gets applied to the controls immediately and re-saved, and every
+// further edit is written back to localStorage as it happens. The local
+// sound *file* can't be persisted this way (files aren't serializable) -
+// only the sound URL is.
+
+const SETTINGS_STORAGE_KEY = "motion-detector:settings";
+
+const SETTINGS_FIELDS = {
+  message: { el: els.message, param: "msg", type: "string" },
+  soundUrl: { el: els.soundUrl, param: "sound", type: "string" },
+  siren: { el: els.sirenToggle, param: "siren", type: "bool" },
+  sensitivity: { el: els.sensitivity, param: "sensitivity", type: "int", min: 1, max: 100 },
+  duration: { el: els.duration, param: "duration", type: "float", min: 0.2, max: 5 },
+  delay: { el: els.delay, param: "delay", type: "int", min: 0, max: 60 },
+};
+
+function readFieldValue(field) {
+  return field.type === "bool" ? field.el.checked : field.el.value;
+}
+
+function writeFieldValue(field, value) {
+  if (field.type === "bool") {
+    field.el.checked = value === true || value === "true" || value === "1";
+    return;
+  }
+  if (field.type === "int" || field.type === "float") {
+    const n = Number(value);
+    if (Number.isNaN(n)) return;
+    field.el.value = String(Math.min(field.max, Math.max(field.min, n)));
+    return;
+  }
+  field.el.value = String(value);
+}
+
+function loadStoredSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.warn("[motion-detector] не удалось прочитать сохранённые настройки:", error);
+    return {};
+  }
+}
+
+function saveSettings() {
+  const snapshot = {};
+  for (const [key, field] of Object.entries(SETTINGS_FIELDS)) {
+    snapshot[key] = readFieldValue(field);
+  }
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+    console.warn("[motion-detector] не удалось сохранить настройки:", error);
+  }
+}
+
+function settingsFromUrl() {
+  // URLSearchParams decodes percent-encoding on its own - a URL built by
+  // hand just needs the sound URL (or anything else) percent-encoded once,
+  // e.g. ?sound=https%3A%2F%2Fexample.com%2Falarm.wav
+  const params = new URLSearchParams(window.location.search);
+  const result = {};
+  for (const [key, field] of Object.entries(SETTINGS_FIELDS)) {
+    if (params.has(field.param)) result[key] = params.get(field.param);
+  }
+  return result;
+}
+
+function initSettings() {
+  const merged = { ...loadStoredSettings(), ...settingsFromUrl() }; // URL wins
+  for (const [key, field] of Object.entries(SETTINGS_FIELDS)) {
+    if (merged[key] !== undefined) writeFieldValue(field, merged[key]);
+  }
+  saveSettings(); // a shared link's settings stick around for next time too
+
+  for (const field of Object.values(SETTINGS_FIELDS)) {
+    field.el.addEventListener(field.type === "bool" ? "change" : "input", saveSettings);
+  }
+}
+
+initSettings();
 
 // --- Sensitivity slider <-> wasm parameter mapping ------------------------
 // Shared by the slider itself and the calibration wizard, which needs to
