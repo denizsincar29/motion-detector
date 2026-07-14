@@ -34,6 +34,9 @@ const els = {
   alarmAudio: document.getElementById("alarm-audio"),
   diagnostics: document.getElementById("diagnostics"),
   cameraField: document.getElementById("camera-field"),
+  torchField: document.getElementById("torch-field"),
+  torchHint: document.getElementById("torch-hint"),
+  torchToggle: document.getElementById("torch-toggle"),
 };
 
 const displayCtx = els.displayCanvas.getContext("2d");
@@ -52,6 +55,8 @@ let lastSpokeAt = 0;
 let motionStreakStartedAt = null; // timestamp when the current unbroken motion streak began
 let countdownTimer = null;
 let objectSoundUrl = null; // set when a local file is chosen, revoked on replace
+let currentMotionRatio = 0;
+let lastMotionLogAt = 0;
 let activeVideoTrack = null;
 let cameraDiag = "ok"; // "ok" | "muted" | "ended" | "dark"
 let darkFrameStreakStartedAt = null;
@@ -124,6 +129,53 @@ function updateBrightnessDiagnostic(data, now) {
   }
 }
 
+/** Best-effort: nudge exposure/brightness up and surface a torch toggle if
+ *  the camera exposes these (most webcams don't; phone rear cameras with
+ *  torch are the realistic win here). None of this can help if there's
+ *  genuinely no light at all - it's a sensor, not magic. */
+async function tryBrightenCamera(track) {
+  els.torchField.hidden = true;
+  els.torchHint.hidden = true;
+  if (typeof track.getCapabilities !== "function") return;
+
+  let caps;
+  try {
+    caps = track.getCapabilities();
+  } catch {
+    return;
+  }
+  console.info("[motion-detector] возможности камеры:", caps);
+
+  const advanced = {};
+  if (caps.exposureCompensation) advanced.exposureCompensation = caps.exposureCompensation.max;
+  if (caps.brightness) advanced.brightness = caps.brightness.max;
+  if (Object.keys(advanced).length > 0) {
+    try {
+      await track.applyConstraints({ advanced: [advanced] });
+      console.info("[motion-detector] подняли экспозицию/яркость камеры:", advanced);
+    } catch (error) {
+      console.warn("[motion-detector] не удалось применить настройки яркости:", error);
+    }
+  }
+
+  if (caps.torch) {
+    els.torchField.hidden = false;
+    els.torchHint.hidden = false;
+    els.torchToggle.checked = false;
+  }
+}
+
+els.torchToggle.addEventListener("change", async () => {
+  if (!activeVideoTrack) return;
+  try {
+    await activeVideoTrack.applyConstraints({ advanced: [{ torch: els.torchToggle.checked }] });
+  } catch (error) {
+    console.error("[motion-detector] не удалось переключить фонарик:", error);
+    alert("Не удалось включить фонарик — камера или браузер это не поддерживает.");
+    els.torchToggle.checked = false;
+  }
+});
+
 // --- Settings, read live from the controls -------------------------------
 
 function customMessage() {
@@ -148,14 +200,17 @@ function alarmSoundSrc() {
 function refreshSensitivityLabel() {
   els.sensitivityValue.textContent = `${els.sensitivity.value}%`;
   if (motionDetector) {
-    // Sensitivity slider: 1 (least sensitive) .. 100 (most sensitive) maps
-    // down to a required-change-ratio between 30% (barely reacts) and 1%
-    // (reacts to small movements) of the downscaled frame.
     const pct = Number(els.sensitivity.value);
-    const maxRatio = 0.3;
-    const minRatio = 0.01;
-    const ratio = maxRatio - (pct - 1) * ((maxRatio - minRatio) / 99);
+    // Sensitivity slider: 1 (least sensitive) .. 100 (most sensitive).
+    // Two knobs on the wasm side move together: how much of the frame
+    // must change (motion_ratio) and how much a single pixel must change
+    // to count at all (threshold). Only tuning the former left threshold
+    // stuck at a fixed value that no slider setting could get under.
+    const ratio = 0.3 - (pct - 1) * (0.29 / 99); // 30% .. 1%
     motionDetector.motion_ratio = ratio;
+    currentMotionRatio = ratio;
+    const threshold = Math.round(40 - (pct - 1) * (30 / 99)); // 40 .. 10
+    motionDetector.threshold = threshold;
   }
 }
 
@@ -288,6 +343,20 @@ function processFrame(source, now) {
   updateBrightnessDiagnostic(data, now);
   motionDetector.set_size(w, h);
   const result = motionDetector.process_frame(data);
+
+  if (now - lastMotionLogAt > 1000) {
+    const resultText =
+      result === wasm.DetectionResult.Detected
+        ? "движение"
+        : result === wasm.DetectionResult.NotReady
+          ? "буфер наполняется"
+          : "нет движения";
+    console.debug(
+      `[motion-detector] изменилось: ${(motionDetector.last_change_ratio * 100).toFixed(1)}%, ` +
+        `порог срабатывания: ${(currentMotionRatio * 100).toFixed(1)}%, результат: ${resultText}`
+    );
+    lastMotionLogAt = now;
+  }
 
   if (state !== "countdown") {
     updateSiren(motionDetector.last_change_ratio);
@@ -427,6 +496,7 @@ async function attachStream(stream) {
 
   cameraStartedAt = performance.now();
   darkFrameStreakStartedAt = null;
+  await tryBrightenCamera(track);
 
   if (typeof MediaStreamTrackProcessor !== "undefined") {
     // Reads decoded VideoFrames straight off the track, bypassing the
@@ -495,6 +565,8 @@ function stopCamera() {
   cameraStartedAt = null;
   cameraDiag = "ok";
   els.diagnostics.textContent = "";
+  els.torchField.hidden = true;
+  els.torchHint.hidden = true;
 }
 
 // --- Start / stop / delayed start ------------------------------------------

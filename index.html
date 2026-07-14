@@ -43,6 +43,12 @@
       <select id="camera-select"></select>
     </div>
     <p class="hint">Список появится после первого запуска (браузер показывает названия камер только после разрешения на доступ). Если камера одна, выбор не показывается — выбирать не из чего.</p>
+
+    <div class="field field--checkbox" id="torch-field" hidden>
+      <input id="torch-toggle" type="checkbox">
+      <label for="torch-toggle">Фонарик</label>
+    </div>
+    <p class="hint" id="torch-hint" hidden>В темноте обычная камера физически не видит движение — светочувствительности не хватает. Если камера (обычно задняя на телефоне) поддерживает подсветку, этот переключатель её включает.</p>
   </section>
 
   <section aria-labelledby="sensitivity-heading">

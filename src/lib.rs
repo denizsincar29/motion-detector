@@ -20,8 +20,13 @@ pub enum DetectionResult {
     NotDetected,
 }
 
-/// How many consecutive grayscale frames we keep to compute a diff.
-const WINDOW_SIZE: usize = 3;
+/// How many consecutive grayscale frames we keep. We diff the oldest against
+/// the newest frame in this buffer, not adjacent frames - at 30fps, adjacent
+/// frames (33ms apart) are too close together for normal human movement to
+/// produce a meaningful per-pixel delta once downscaled, especially with a
+/// per-pixel threshold in the mix. ~10 frames (~330ms at 30fps) gives real
+/// motion time to actually displace pixels.
+const WINDOW_SIZE: usize = 10;
 
 /// Motion detector: keeps a small sliding window of grayscale frames and
 /// flags motion when the fraction of changed pixels exceeds `motion_ratio`.
@@ -60,7 +65,7 @@ impl MotionDetector {
         utils::set_panic_hook();
         Self {
             frames: Vec::with_capacity(WINDOW_SIZE),
-            threshold: 30,
+            threshold: 20,
             motion_ratio: 0.03,
             max_global_change_ratio: 0.8,
             last_change_ratio: 0.0,
@@ -109,20 +114,15 @@ impl MotionDetector {
         self.last_change_ratio
     }
 
-    /// Averaged pixel diff across the buffered window (needs WINDOW_SIZE frames).
+    /// Pixel-by-pixel diff between the oldest and newest buffered frame.
     fn pixel_diff(&self) -> Vec<u8> {
-        let pixel_count = self.width * self.height;
-        let mut diff = vec![0u16; pixel_count];
-
-        for pair in self.frames.windows(2) {
-            let (prev, next) = (&pair[0], &pair[1]);
-            for (d, (&a, &b)) in diff.iter_mut().zip(prev.iter().zip(next.iter())) {
-                *d += (a as i16 - b as i16).unsigned_abs();
-            }
-        }
-
-        let divisor = (self.frames.len().saturating_sub(1)).max(1) as u16;
-        diff.into_iter().map(|d| (d / divisor) as u8).collect()
+        let oldest = self.frames.first().expect("called with a full buffer");
+        let newest = self.frames.last().expect("called with a full buffer");
+        oldest
+            .iter()
+            .zip(newest.iter())
+            .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs() as u8)
+            .collect()
     }
 
     /// Converts an RGBA or RGB buffer (as handed over by canvas ImageData) to grayscale.
@@ -145,9 +145,12 @@ impl MotionDetector {
     }
 
     fn process_gs_frame(&mut self, frame: Vec<u8>) -> DetectionResult {
+        self.frames.push(frame);
         if self.frames.len() < WINDOW_SIZE {
-            self.frames.push(frame);
             return DetectionResult::NotReady;
+        }
+        if self.frames.len() > WINDOW_SIZE {
+            self.frames.remove(0);
         }
 
         let diff = self.pixel_diff();
@@ -155,9 +158,6 @@ impl MotionDetector {
         let motion_pixels = diff.iter().filter(|&&d| d > self.threshold).count();
         let changed_ratio = motion_pixels as f32 / pixel_count as f32;
         self.last_change_ratio = changed_ratio;
-
-        self.frames.remove(0);
-        self.frames.push(frame);
 
         // A light switch, sunrise/sunset, or auto-exposure jump changes
         // nearly every pixel at once. Real motion changes a *region*, not
@@ -201,8 +201,9 @@ mod tests {
         let mut md = MotionDetector::new(2, 2);
         md.set_motion_ratio(0.0);
         let frame = vec![100u8; 2 * 2 * 3]; // flat gray RGB
-        md.process_frame(frame.clone());
-        md.process_frame(frame.clone());
+        for _ in 0..WINDOW_SIZE {
+            md.process_frame(frame.clone());
+        }
         let result = md.process_frame(frame);
         assert_eq!(result, DetectionResult::NotDetected);
     }
@@ -214,10 +215,25 @@ mod tests {
         md.set_motion_ratio(0.0); // would trigger on almost any diff
         let bright = vec![200u8; 4 * 4 * 3];
         let dark = vec![10u8; 4 * 4 * 3];
-        md.process_frame(bright.clone());
-        md.process_frame(bright.clone());
+        for _ in 0..WINDOW_SIZE {
+            md.process_frame(bright.clone());
+        }
         let result = md.process_frame(dark);
         assert_eq!(result, DetectionResult::NotDetected);
+    }
+
+    #[test]
+    fn detects_localized_motion_after_window_fills() {
+        let mut md = MotionDetector::new(4, 4);
+        md.set_motion_ratio(0.05); // one changed pixel out of 16 (6.25%) should clear this
+        let still = vec![50u8; 4 * 4 * 3];
+        let mut moved = still.clone();
+        moved[0] = 200; // one pixel changes a lot, rest of the frame stays put
+        for _ in 0..WINDOW_SIZE {
+            md.process_frame(still.clone());
+        }
+        let result = md.process_frame(moved);
+        assert_eq!(result, DetectionResult::Detected);
     }
 
     #[test]
@@ -227,8 +243,9 @@ mod tests {
         let a = vec![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // 4 px RGB, all black
         let mut b = a.clone();
         b[0] = 255; // change one channel of one pixel enough to cross `threshold`
-        md.process_frame(a.clone());
-        md.process_frame(a.clone());
+        for _ in 0..WINDOW_SIZE {
+            md.process_frame(a.clone());
+        }
         md.process_frame(b);
         assert!(md.last_change_ratio() > 0.0);
     }
