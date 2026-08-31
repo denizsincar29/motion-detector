@@ -312,9 +312,9 @@ initSettings();
 // Shared by the slider itself and the calibration wizard, which needs to
 // go the other way (measured ratio -> slider position to propose).
 
-const SENSITIVITY_MIN_RATIO = 0.01; // most sensitive
+const SENSITIVITY_MIN_RATIO = 0.005; // most sensitive
 const SENSITIVITY_MAX_RATIO = 0.3; // least sensitive
-const THRESHOLD_MIN = 10; // most sensitive
+const THRESHOLD_MIN = 6; // most sensitive
 const THRESHOLD_MAX = 40; // least sensitive
 
 function sensitivityPctToRatio(pct) {
@@ -603,9 +603,16 @@ function processFrame(source, now) {
   const streakMs = now - motionStreakStartedAt;
 
   if (streakMs >= durationMs()) {
-    setStatus("alarm", customMessage());
-    announceAlarm(now);
-    startAlarmRecording();
+    // Fire the alarm only on the armed -> alarm transition. While motion
+    // keeps going, state stays "alarm", so this block is a no-op - without
+    // the guard, announceAlarm() would re-play the sound from the start
+    // once a second (SPEAK_DEBOUNCE_MS) for the entire duration of the
+    // motion streak.
+    if (state !== "alarm") {
+      setStatus("alarm", customMessage());
+      announceAlarm(now);
+      startAlarmRecording();
+    }
   }
 }
 
