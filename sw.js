@@ -2,7 +2,7 @@
 // usable offline. Bump CACHE_NAME whenever static assets change so old
 // clients drop the stale cache on their next visit.
 
-const CACHE_NAME = "motion-detector-v1";
+const CACHE_NAME = "motion-detector-v2";
 
 const ASSETS = [
   "./",
