@@ -869,11 +869,14 @@ function stop() {
   stopSiren();
   stopAlarmRecording();
   stopCamera();
+  els.alarmAudio.pause();
+  els.alarmAudio.currentTime = 0;
   motionStreakStartedAt = null;
   setStatus("idle");
   els.startStop.textContent = "Старт";
   els.startStop.classList.remove("is-active");
   els.calibrateStart.disabled = false;
+  speak("Остановлено");
 }
 
 els.startStop.addEventListener("click", () => {
@@ -885,6 +888,14 @@ els.startStop.addEventListener("click", () => {
     audioCtx.resume();
     start();
   } else {
+    stop();
+  }
+});
+
+// Escape stops monitoring and silences the alarm from anywhere on the page.
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && (state === "armed" || state === "alarm" || state === "countdown")) {
+    event.preventDefault();
     stop();
   }
 });
