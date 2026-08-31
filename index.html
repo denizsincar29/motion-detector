@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181c">
 <title>Детектор движения</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -107,6 +111,13 @@
       <label for="siren-toggle">Экспериментально: звуковая сирена</label>
     </div>
     <p class="hint">Пока запущено, играет непрерывный тон, чья высота растёт вместе с интенсивностью движения в кадре — что-то вроде воющей сирены. Не связано с длительностью выше: реагирует на любое движение сразу, для наглядной обратной связи.</p>
+
+    <div class="field field--checkbox">
+      <input id="record-toggle" type="checkbox">
+      <label for="record-toggle">Записывать видео при тревоге</label>
+    </div>
+    <p class="hint">Когда тревога сработает, начнётся запись с камеры; когда движение прекратится, клип появится ниже — его можно посмотреть или скачать. Записи живут до закрытия вкладки.</p>
+    <div id="recordings" class="recordings" aria-live="polite"></div>
   </section>
 </main>
 

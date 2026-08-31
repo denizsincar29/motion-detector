@@ -217,6 +217,42 @@ button.is-active {
   flex-wrap: wrap;
 }
 
+.recordings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.recordings:empty {
+  display: none;
+}
+
+.recording {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.recording__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.recording video {
+  max-width: 100%;
+  border-radius: 0.35rem;
+}
+
+.recording a {
+  color: var(--armed);
+  font-weight: 500;
+}
+
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;

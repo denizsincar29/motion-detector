@@ -31,6 +31,8 @@ const els = {
   soundUrl: document.getElementById("sound-url"),
   soundFile: document.getElementById("sound-file"),
   sirenToggle: document.getElementById("siren-toggle"),
+  recordToggle: document.getElementById("record-toggle"),
+  recordings: document.getElementById("recordings"),
   alarmAudio: document.getElementById("alarm-audio"),
   diagnostics: document.getElementById("diagnostics"),
   cameraField: document.getElementById("camera-field"),
@@ -70,6 +72,17 @@ let darkFrameStreakStartedAt = null;
 let cameraStartedAt = null;
 let frameReader = null;
 let usingTrackProcessor = false;
+
+// --- Alarm video recording ---------------------------------------------------
+// Records the camera stream from the moment an alarm fires until motion
+// stops, then offers the clip for playback/download. Clips live only for the
+// session; the newest MAX_RECORDINGS are kept and the rest revoked.
+
+const MAX_RECORDINGS = 3;
+
+let currentStream = null; // live camera stream, needed by MediaRecorder
+let alarmRecorder = null;
+let alarmChunks = [];
 
 // --- Calibration wizard state -----------------------------------------------
 let calNoiseFloor = 0; // max last_change_ratio observed while standing still
@@ -418,6 +431,89 @@ function stopSiren() {
   }
 }
 
+function pickRecordingMimeType() {
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return "";
+}
+
+function startAlarmRecording() {
+  if (!els.recordToggle.checked || !currentStream || alarmRecorder) return;
+  try {
+    alarmChunks = [];
+    const mimeType = pickRecordingMimeType();
+    alarmRecorder = new MediaRecorder(currentStream, mimeType ? { mimeType } : undefined);
+    alarmRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) alarmChunks.push(event.data);
+    };
+    alarmRecorder.onstop = finishAlarmRecording;
+    alarmRecorder.onerror = (error) => {
+      console.error("[motion-detector] ошибка записи:", error.error || error);
+      alarmRecorder = null;
+    };
+    alarmRecorder.start();
+    console.info("[motion-detector] начата запись тревоги");
+  } catch (error) {
+    console.error("[motion-detector] не удалось начать запись:", error);
+    alarmRecorder = null;
+  }
+}
+
+function stopAlarmRecording() {
+  if (!alarmRecorder) return;
+  const recorder = alarmRecorder;
+  alarmRecorder = null;
+  try {
+    recorder.stop();
+  } catch (error) {
+    console.error("[motion-detector] не удалось остановить запись:", error);
+    alarmChunks = [];
+  }
+}
+
+function addRecording(blob) {
+  const url = URL.createObjectURL(blob);
+  const stamp = new Date().toLocaleTimeString("ru-RU");
+
+  const wrap = document.createElement("div");
+  wrap.className = "recording";
+
+  const title = document.createElement("p");
+  title.className = "recording__title";
+  title.textContent = `Тревога в ${stamp}`;
+
+  const video = document.createElement("video");
+  video.controls = true;
+  video.src = url;
+
+  const download = document.createElement("a");
+  download.href = url;
+  download.download = `motion-${Date.now()}.webm`;
+  download.textContent = "Скачать видео";
+
+  wrap.append(title, video, download);
+  els.recordings.prepend(wrap);
+
+  while (els.recordings.children.length > MAX_RECORDINGS) {
+    const oldest = els.recordings.lastElementChild;
+    const oldestVideo = oldest?.querySelector("video");
+    if (oldestVideo?.src) URL.revokeObjectURL(oldestVideo.src);
+    oldest?.remove();
+  }
+  speak("Видео тревоги сохранено");
+}
+
+function finishAlarmRecording() {
+  const recorder = alarmRecorder;
+  alarmRecorder = null;
+  if (alarmChunks.length === 0) return;
+  const blob = new Blob(alarmChunks, { type: recorder?.mimeType || "video/webm" });
+  alarmChunks = [];
+  addRecording(blob);
+}
+
 // --- Alarm ----------------------------------------------------------------
 
 function playAlarmSound() {
@@ -496,7 +592,10 @@ function processFrame(source, now) {
 
   if (!isMotion) {
     motionStreakStartedAt = null;
-    if (state === "alarm") setStatus("armed");
+    if (state === "alarm") {
+      setStatus("armed");
+      stopAlarmRecording();
+    }
     return;
   }
 
@@ -506,6 +605,7 @@ function processFrame(source, now) {
   if (streakMs >= durationMs()) {
     setStatus("alarm", customMessage());
     announceAlarm(now);
+    startAlarmRecording();
   }
 }
 
@@ -607,6 +707,7 @@ async function attachStream(stream) {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
   }
   els.video.srcObject = stream;
+  currentStream = stream;
   const track = stream.getVideoTracks()[0];
   attachTrackDiagnostics(track);
   await new Promise((resolve) => els.video.addEventListener("loadedmetadata", resolve, { once: true }));
@@ -687,6 +788,7 @@ function stopCamera() {
     els.video.srcObject.getTracks().forEach((track) => track.stop());
     els.video.srcObject = null;
   }
+  currentStream = null;
   activeVideoTrack = null;
   motionDetector = null;
   darkFrameStreakStartedAt = null;
@@ -765,6 +867,7 @@ function stop() {
     rafHandle = null;
   }
   stopSiren();
+  stopAlarmRecording();
   stopCamera();
   motionStreakStartedAt = null;
   setStatus("idle");
@@ -932,5 +1035,13 @@ function endCalibration() {
 els.calibrateStart.addEventListener("click", startCalibration);
 els.calibrationApply.addEventListener("click", applyCalibration);
 els.calibrationDiscard.addEventListener("click", discardCalibration);
+
+// --- PWA: offline support + installability ----------------------------------
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js").catch((error) => {
+    console.warn("[motion-detector] не удалось зарегистрировать service worker:", error);
+  });
+}
 
 setStatus("idle");

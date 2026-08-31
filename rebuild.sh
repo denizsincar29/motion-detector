@@ -66,4 +66,4 @@ cp pkg/motion_detector_bg.wasm "$DEST/pkg/"
 echo
 echo -e "${GREEN}==> Done.${NC}"
 echo    "    Deployed to $DEST"
-echo    "    Served at  https://motion-detector.denizsincar.ru"
+echo    "    Served at  https://motion.denizsincar.ru"
