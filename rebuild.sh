@@ -3,7 +3,8 @@
 #
 # What it does:
 #   1. Builds the WASM package with wasm-pack (or cargo + wasm-bindgen)
-#   2. Copies only index.html, style.css, *.js, and pkg/ artefacts to DEST
+#   2. Copies the frontend (html, css, js, sw, manifest, icons) and pkg/
+#      artefacts to DEST
 #   3. Never deletes manually-added server-side files in DEST
 #
 # Usage:
@@ -56,8 +57,10 @@ mkdir -p "$DEST/pkg"
 # ── Deploy: explicit file list, no surprises ──────────────────────────────────
 echo -e "${GREEN}==> Copying frontend files...${NC}"
 
-cp index.html style.css "$DEST/"
+cp index.html style.css manifest.webmanifest sw.js "$DEST/"
 cp script.js screenreader.js "$DEST/"
+mkdir -p "$DEST/icons"
+cp icons/icon-192.png icons/icon-512.png icons/icon-maskable-512.png icons/icon.svg icons/icon-maskable.svg "$DEST/icons/"
 
 # WASM artefacts (only the two files the browser needs)
 cp pkg/motion_detector.js "$DEST/pkg/"

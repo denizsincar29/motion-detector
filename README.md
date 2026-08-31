@@ -55,7 +55,7 @@ cargo install wasm-pack
 wasm-pack build --target web --release
 ```
 
-После сборки появится папка `pkg/`. Раздай на сервере `pkg/`, `index.html`, `script.js`, `screenreader.js`, `style.css` — либо просто запусти любой веб-сервер в корне проекта.
+После сборки появится папка `pkg/`. Раздай на сервере `pkg/`, `index.html`, `style.css`, `script.js`, `screenreader.js`, `manifest.webmanifest`, `sw.js`, `icons/` — либо просто запусти `./rebuild.sh`, который кладёт все файлы в каталог сайта.
 
 ## Деплой
 
