@@ -1,38 +1,69 @@
-# Motion detector
-A wasm module that detects motion in a video stream from a webcam directly in the browser.
+# Детектор движения
 
-## Note
-This is a work in progress, but as of 4 march 2024 it's working!
+Браузерный детектор движения с веб-камеры: Rust-модуль (WebAssembly) следит за видеопотоком и поднимает тревогу, когда движение в кадре не прекращается достаточно долго. Короткие мелькания (муха, тень, свет) игнорируются.
 
-## how it works
-The module uses the standard web camera api to get a video stream. It feeds the video stream through a canvas to wasm where the motion detection is done.
-The motion detection is done by comparing the current frame with the previous frame. If the difference is above a certain threshold, motion is detected.
-On my machine, it could detect millimeter movements of me sitting in front of the camera, so to test it, i go far away from the camera and then walk towards it.
+Сделан для незрячих пользователей: об обнаружении движения объявляет скринридер, а настройки можно сохранить и расшарить ссылкой.
 
-## Try it out
-You can try it out [here](https://denizsincar.ru/motion).
-If you want to customize the "motion detected!" message, you can add `say="your message here"` to the url. For example, [here](https://denizsincar.ru/motion?say=Stand+still!) when motion is detected, the screenreader will say "Stand still!".
+**Работает здесь: https://motion.denizsincar.ru**
 
+## Как это работает
 
-## build
-To build the module, you need to have `wasm-pack` installed. You can install it using `cargo`:
+Модуль берёт видеопоток с камеры через стандартный Web Camera API, уменьшает кадр и отдаёт его в WASM, где происходит анализ движения.
+
+- Кадр переводится в градации серого и добавляется в скользящее окно из 10 кадров (~330 мс при 30 fps).
+- Движение считается сравнением самого старого и самого нового кадра в окне, а не соседних: при 30 fps между соседними кадрами всего 33 мс, и обычное движение человека не успевает заметно сдвинуть пиксели.
+- Пиксель считается «изменившимся», если его яркость отличается больше порога (`threshold`). Доля изменившихся пикселей сравнивается с порогом чувствительности (`motion_ratio`).
+- Резкое изменение почти всего кадра одновременно (переключатель света, скачок автоэкспозиции) трактуется как глобальная смена освещения, а не движение.
+
+Полноценную тревогу собирает уже JS: он следит, как долго движение идёт непрерывно, и срабатывает только когда оно длится дольше заданной длительности. Именно это не даёт одиночной мелькнувшей тени поднять тревогу сразу.
+
+На моей машине детектор ловит миллиметровые движения — чтобы протестировать, я отхожу от камеры подальше и иду к ней.
+
+## Возможности
+
+- **Чувствительность и длительность** — два ползунка: сколько изменений в кадре считать движением и как долго оно должно не прекращаться.
+- **Задержка запуска** — даёт время уйти из кадра, прежде чем детектор начнёт считать твоё собственное движение тревогой.
+- **Выбор камеры** — список реальных камер (не `facingMode`); появляется после первого запуска, когда браузер отдаёт названия.
+- **Фонарик** — подсветка для задней камеры телефона в темноте.
+- **Калибровка** — мастер измеряет уровень шума камеры в неподвижном состоянии, затем наблюдаемое движение, и предлагает чувствительность и длительность по реальным цифрам, а не на глаз.
+- **Тревога** — сообщение, собственный звуковой файл (или URL), экспериментальная сирена, чья высота растёт с интенсивностью движения.
+- **Диагностика камеры** — различает «шторка закрыта», «камера отвалилась» и «объектив закрыт» (по состоянию дорожки и яркости кадров).
+- **Сохранение настроек** — в localStorage, плюс расшариваемые параметры в URL (ниже).
+- **Скринридер** — все события объявляются через `aria-live`.
+
+### Параметры URL
+
+Приоритет: параметры URL > сохранённые настройки > значения по умолчанию.
+
+- `msg` — сообщение при тревоге, например `?msg=Стой!`
+- `sound` — URL звукового файла тревоги (percent-encoded)
+- `siren` — включить сирену (`1`)
+- `sensitivity` — чувствительность (1–100)
+- `duration` — длительность движения, секунды (0.2–5)
+- `delay` — задержка запуска, секунды (0–60)
+
+Пример: `https://motion.denizsincar.ru/?msg=Stand+still!`
+
+## Сборка
+
+Нужен `wasm-pack`:
+
 ```bash
 cargo install wasm-pack
+wasm-pack build --target web --release
 ```
 
-Then you can build the module using:
-```bash
-wasm-pack build --target web
-```
+После сборки появится папка `pkg/`. Раздай на сервере `pkg/`, `index.html`, `script.js`, `screenreader.js`, `style.css` — либо просто запусти любой веб-сервер в корне проекта.
 
-to publish on your website, you can copy the pkg, all html, css and js files to your server. Or simply copy the whole folder with this repo (prebuilt) to your server, delete .git and target folders and you are good to go.
+## Деплой
 
-## simple usage
-Just launch a small web server in the root of the project and open the browser at `http://localhost:8000` or whatever port you choose.
-When motion is detected, a small div will become red and say "Motion detected". Also screenreader users will hear "Motion detected".
+Есть два пути:
 
+1. **GitHub Actions (автодеплой).** Workflow `compile wasm` (`.github/workflows/rehost.yml`) на каждый push в `master` собирает WASM и отправляет собранные файлы на сервер через SCP (`appleboy/scp-action`, секреты `HOST` и `KEY`).
+2. **Локальный скрипт `rebuild.sh`.** Собирает WASM и копирует файлы в каталог на сервере (по умолчанию `/var/www/html/motion-detector`). Никогда не удаляет вручную добавленные файлы в целевой папке.
 
+> **Внимание:** live-сайт обслуживается Caddy и отвечает по адресу `motion.denizsincar.ru`. Проверь, что каталог, в который Action кладёт файлы, совпадает с корнем сайта в конфиге Caddy, — иначе деплой «успешно» уходит не туда, и сайт остаётся старым.
 
+## Лицензия
 
-## license
 MIT
